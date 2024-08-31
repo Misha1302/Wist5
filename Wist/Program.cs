@@ -5,10 +5,14 @@ using Wist.Grammar;
 const string expression =
     """
     i32 main() {
-        i32 a;
-        a = 6;
+        i32 b, c;
+        i32 a = 6, d, f = 3;
+        i32 zero;
+        zero = 0;
+        d = 8;
         a = a + 10;
-        return 0 - (a + 8 * 3 / 2);
+        c = 2;
+        return zero - (a + d * f / c);
     }
     """;
 

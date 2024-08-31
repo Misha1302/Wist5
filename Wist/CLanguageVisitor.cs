@@ -6,7 +6,7 @@ using Wist.Grammar;
 
 namespace Wist;
 
-public class CLanguageVisitor : CBaseVisitor<object>
+public class CLanguageVisitor : CBaseVisitor<List<object>>
 {
     private readonly Dictionary<string, GroboIL.Local> _locals = [];
     private readonly TypeBuilder _mainType;
@@ -25,7 +25,7 @@ public class CLanguageVisitor : CBaseVisitor<object>
     }
 
 
-    public override object VisitFunctionDefinition(CParser.FunctionDefinitionContext context)
+    public override List<object> VisitFunctionDefinition(CParser.FunctionDefinitionContext context)
     {
         var method = _mainType.DefineMethod(
             "main",
@@ -40,9 +40,9 @@ public class CLanguageVisitor : CBaseVisitor<object>
         return null!;
     }
 
-    public override object VisitPrimaryExpression(CParser.PrimaryExpressionContext context)
+    public override List<object> VisitPrimaryExpression(CParser.PrimaryExpressionContext context)
     {
-        if (_expressionLevel == 0) return context.GetText();
+        if (_expressionLevel == 0) return [context.GetText()];
 
         if (context.Constant() is not null)
         {
@@ -61,18 +61,25 @@ public class CLanguageVisitor : CBaseVisitor<object>
         return base.VisitPrimaryExpression(context);
     }
 
-    public override object VisitJumpStatement(CParser.JumpStatementContext context)
+    public override List<object> VisitDirectDeclarator(CParser.DirectDeclaratorContext context)
+    {
+        return [context.GetText()];
+    }
+
+    public override List<object> VisitJumpStatement(CParser.JumpStatementContext context)
     {
         if (context.GetChild(0).GetText() != "return") throw new InvalidOperationException();
 
+        _expressionLevel++;
         VisitChildren(context);
+        _expressionLevel--;
 
         _il.Ret();
 
         return null!;
     }
 
-    public override object VisitAdditiveExpression(CParser.AdditiveExpressionContext context)
+    public override List<object> VisitAdditiveExpression(CParser.AdditiveExpressionContext context)
     {
         if (context.multiplicativeExpression().Length < 2)
             return base.VisitAdditiveExpression(context);
@@ -83,7 +90,7 @@ public class CLanguageVisitor : CBaseVisitor<object>
         return null!;
     }
 
-    public override object VisitMultiplicativeExpression(CParser.MultiplicativeExpressionContext context)
+    public override List<object> VisitMultiplicativeExpression(CParser.MultiplicativeExpressionContext context)
     {
         if (context.castExpression().Length < 2)
             return base.VisitMultiplicativeExpression(context);
@@ -96,7 +103,8 @@ public class CLanguageVisitor : CBaseVisitor<object>
 
     private void EmitMathOps(ParserRuleContext context, ParserRuleContext[] contexts)
     {
-        _expressionLevel++;
+        if (_expressionLevel == 0) return;
+
         Visit(contexts[0]);
         for (var i = 1; i < contexts.Length; i++)
         {
@@ -105,8 +113,6 @@ public class CLanguageVisitor : CBaseVisitor<object>
             var opStr = context.GetChild(expressionSignIndex).GetText();
             EmitOp(opStr);
         }
-
-        _expressionLevel--;
     }
 
     private void EmitOp(string opStr)
@@ -126,17 +132,52 @@ public class CLanguageVisitor : CBaseVisitor<object>
         Console.WriteLine(_mainType.CreateType().GetMethod("main")!.Invoke(null, null));
     }
 
-    public override object VisitDeclarationSpecifiers(CParser.DeclarationSpecifiersContext context)
+    // returns array of variables to init
+    public override List<object> VisitInitDeclaratorList(CParser.InitDeclaratorListContext context)
     {
-        if (context.declarationSpecifier().Length <= 1) return base.VisitDeclarationSpecifiers(context);
+        var selectMany = context.initDeclarator().SelectMany(Visit);
+        return [..selectMany.Where(x => x is InitInfo)];
+    }
 
-        var type = Visit(context.declarationSpecifier(0));
-        var name = Visit(context.declarationSpecifier(1));
-        _locals.Add((string)name, _il.DeclareLocal(((CType)type).ToSharpType(), (string)name));
+    public override List<object> VisitInitDeclarator(CParser.InitDeclaratorContext context)
+    {
+        var identifier = Visit(context.declarator()).To<string>();
+
+        if (context.initializer() is null)
+            return [new InitInfo(identifier, false)];
+
+
+        _expressionLevel++;
+        Visit(context.initializer());
+        _expressionLevel--;
+
+        return [new InitInfo(identifier, true)];
+    }
+
+    public override List<object> VisitDeclaration(CParser.DeclarationContext context)
+    {
+        if (context.initDeclaratorList() is null) return base.VisitDeclaration(context);
+
+        var type = Visit(context.declarationSpecifiers()).To<CType>().ToSharpType();
+        var names = Visit(context.initDeclaratorList());
+
+        foreach (InitInfo initInfo in names.Reversed())
+        {
+            _locals.Add(initInfo.Identifier, _il.DeclareLocal(type, initInfo.Identifier));
+            if (initInfo.IsNeedToSet)
+                _il.Stloc(_locals[initInfo.Identifier]);
+        }
+
         return null!;
     }
 
-    public override object VisitAssignmentExpression(CParser.AssignmentExpressionContext context)
+    protected override List<object> AggregateResult(List<object>? aggregate, List<object>? nextResult)
+    {
+        (aggregate ??= []).AddRange(nextResult ?? []);
+        return aggregate;
+    }
+
+    public override List<object> VisitAssignmentExpression(CParser.AssignmentExpressionContext context)
     {
         if (context.unaryExpression() is null) return base.VisitAssignmentExpression(context);
         if (context.assignmentExpression() is null) return base.VisitAssignmentExpression(context);
@@ -146,15 +187,15 @@ public class CLanguageVisitor : CBaseVisitor<object>
         Visit(context.assignmentExpression());
         _expressionLevel--;
 
-        _il.Stloc(_locals[(string)identifier]);
+        _il.Stloc(_locals[identifier.To<string>()]);
 
         return null!;
     }
 
-    public override object VisitTypedefName(CParser.TypedefNameContext context)
+    public override List<object> VisitTypedefName(CParser.TypedefNameContext context)
     {
         if (CTypeConverter.Convert(context.GetText(), out var value))
-            return value;
-        return context.GetText();
+            return [value];
+        return [context.GetText()];
     }
 }
