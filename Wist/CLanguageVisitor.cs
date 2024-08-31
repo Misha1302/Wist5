@@ -6,9 +6,11 @@ using Wist.Grammar;
 
 namespace Wist;
 
-public class CLanguageVisitor : CBaseVisitor<object?>
+public class CLanguageVisitor : CBaseVisitor<object>
 {
+    private readonly Dictionary<string, GroboIL.Local> _locals = [];
     private readonly TypeBuilder _mainType;
+    private int _expressionLevel;
     private GroboIL _il = null!;
 
     public CLanguageVisitor()
@@ -22,7 +24,8 @@ public class CLanguageVisitor : CBaseVisitor<object?>
         _mainType = module.DefineType("MainType", TypeAttributes.Public | TypeAttributes.Class);
     }
 
-    public override object? VisitFunctionDefinition(CParser.FunctionDefinitionContext context)
+
+    public override object VisitFunctionDefinition(CParser.FunctionDefinitionContext context)
     {
         var method = _mainType.DefineMethod(
             "main",
@@ -34,20 +37,31 @@ public class CLanguageVisitor : CBaseVisitor<object?>
 
         VisitChildren(context);
 
-        return null;
+        return null!;
     }
 
-    public override object? VisitPrimaryExpression(CParser.PrimaryExpressionContext context)
+    public override object VisitPrimaryExpression(CParser.PrimaryExpressionContext context)
     {
-        if (context.Constant() is null) return base.VisitPrimaryExpression(context);
+        if (_expressionLevel == 0) return context.GetText();
 
-        var text = context.Constant().GetText();
-        var i = int.Parse(text);
-        _il.Ldc_I4(i);
-        return null;
+        if (context.Constant() is not null)
+        {
+            var text = context.Constant().GetText();
+            var i = int.Parse(text);
+            _il.Ldc_I4(i);
+            return null!;
+        }
+
+        if (context.Identifier() is not null)
+        {
+            var text = context.Identifier().GetText();
+            _il.Ldloc(_locals[text]);
+        }
+
+        return base.VisitPrimaryExpression(context);
     }
 
-    public override object? VisitJumpStatement(CParser.JumpStatementContext context)
+    public override object VisitJumpStatement(CParser.JumpStatementContext context)
     {
         if (context.GetChild(0).GetText() != "return") throw new InvalidOperationException();
 
@@ -55,10 +69,10 @@ public class CLanguageVisitor : CBaseVisitor<object?>
 
         _il.Ret();
 
-        return null;
+        return null!;
     }
 
-    public override object? VisitAdditiveExpression(CParser.AdditiveExpressionContext context)
+    public override object VisitAdditiveExpression(CParser.AdditiveExpressionContext context)
     {
         if (context.multiplicativeExpression().Length < 2)
             return base.VisitAdditiveExpression(context);
@@ -66,10 +80,10 @@ public class CLanguageVisitor : CBaseVisitor<object?>
         // ReSharper disable once CoVariantArrayConversion
         EmitMathOps(context, context.multiplicativeExpression());
 
-        return null;
+        return null!;
     }
 
-    public override object? VisitMultiplicativeExpression(CParser.MultiplicativeExpressionContext context)
+    public override object VisitMultiplicativeExpression(CParser.MultiplicativeExpressionContext context)
     {
         if (context.castExpression().Length < 2)
             return base.VisitMultiplicativeExpression(context);
@@ -77,11 +91,12 @@ public class CLanguageVisitor : CBaseVisitor<object?>
         // ReSharper disable once CoVariantArrayConversion
         EmitMathOps(context, context.castExpression());
 
-        return null;
+        return null!;
     }
 
     private void EmitMathOps(ParserRuleContext context, ParserRuleContext[] contexts)
     {
+        _expressionLevel++;
         Visit(contexts[0]);
         for (var i = 1; i < contexts.Length; i++)
         {
@@ -90,6 +105,8 @@ public class CLanguageVisitor : CBaseVisitor<object?>
             var opStr = context.GetChild(expressionSignIndex).GetText();
             EmitOp(opStr);
         }
+
+        _expressionLevel--;
     }
 
     private void EmitOp(string opStr)
@@ -107,5 +124,37 @@ public class CLanguageVisitor : CBaseVisitor<object?>
         Console.WriteLine(_il.GetILCode());
 
         Console.WriteLine(_mainType.CreateType().GetMethod("main")!.Invoke(null, null));
+    }
+
+    public override object VisitDeclarationSpecifiers(CParser.DeclarationSpecifiersContext context)
+    {
+        if (context.declarationSpecifier().Length <= 1) return base.VisitDeclarationSpecifiers(context);
+
+        var type = Visit(context.declarationSpecifier(0));
+        var name = Visit(context.declarationSpecifier(1));
+        _locals.Add((string)name, _il.DeclareLocal(((CType)type).ToSharpType(), (string)name));
+        return null!;
+    }
+
+    public override object VisitAssignmentExpression(CParser.AssignmentExpressionContext context)
+    {
+        if (context.unaryExpression() is null) return base.VisitAssignmentExpression(context);
+        if (context.assignmentExpression() is null) return base.VisitAssignmentExpression(context);
+
+        var identifier = Visit(context.unaryExpression());
+        _expressionLevel++;
+        Visit(context.assignmentExpression());
+        _expressionLevel--;
+
+        _il.Stloc(_locals[(string)identifier]);
+
+        return null!;
+    }
+
+    public override object VisitTypedefName(CParser.TypedefNameContext context)
+    {
+        if (CTypeConverter.Convert(context.GetText(), out var value))
+            return value;
+        return context.GetText();
     }
 }

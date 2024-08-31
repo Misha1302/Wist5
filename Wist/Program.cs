@@ -2,7 +2,15 @@
 using Wist;
 using Wist.Grammar;
 
-var expression = "int main() { return 0 - (6 + 8 * 3 / 2); }";
+const string expression =
+    """
+    i32 main() {
+        i32 a;
+        a = 6;
+        a = a + 10;
+        return 0 - (a + 8 * 3 / 2);
+    }
+    """;
 
 var inputStream = new AntlrInputStream(expression);
 var lexer = new CLexer(inputStream);

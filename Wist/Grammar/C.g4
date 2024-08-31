@@ -207,21 +207,7 @@ storageClassSpecifier
     ;
 
 typeSpecifier
-    : 'void'
-    | 'char'
-    | 'short'
-    | 'int'
-    | 'long'
-    | 'float'
-    | 'double'
-    | 'signed'
-    | 'unsigned'
-    | '_Bool'
-    | '_Complex'
-    | '__m128'
-    | '__m128d'
-    | '__m128i'
-    | '__extension__' '(' ('__m128' | '__m128d' | '__m128i') ')'
+    : '__extension__' '(' ('__m128' | '__m128d' | '__m128i') ')'
     | atomicTypeSpecifier
     | structOrUnionSpecifier
     | enumSpecifier
@@ -535,10 +521,6 @@ Case
     : 'case'
     ;
 
-Char
-    : 'char'
-    ;
-
 Const
     : 'const'
     ;
@@ -555,10 +537,6 @@ Do
     : 'do'
     ;
 
-Double
-    : 'double'
-    ;
-
 Else
     : 'else'
     ;
@@ -569,10 +547,6 @@ Enum
 
 Extern
     : 'extern'
-    ;
-
-Float
-    : 'float'
     ;
 
 For
@@ -591,14 +565,6 @@ Inline
     : 'inline'
     ;
 
-Int
-    : 'int'
-    ;
-
-Long
-    : 'long'
-    ;
-
 Register
     : 'register'
     ;
@@ -609,10 +575,6 @@ Restrict
 
 Return
     : 'return'
-    ;
-
-Short
-    : 'short'
     ;
 
 Signed
@@ -647,10 +609,6 @@ Unsigned
     : 'unsigned'
     ;
 
-Void
-    : 'void'
-    ;
-
 Volatile
     : 'volatile'
     ;
@@ -669,14 +627,6 @@ Alignof
 
 Atomic
     : '_Atomic'
-    ;
-
-Bool
-    : '_Bool'
-    ;
-
-Complex
-    : '_Complex'
     ;
 
 Generic
